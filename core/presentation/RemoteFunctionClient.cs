@@ -3,7 +3,7 @@ using RemoteFunctions.Core.Domain;
 
 namespace RemoteFunctions.Core.Presentation;
 
-public sealed class RemoteFunctionClient
+public sealed class RemoteFunctionClient : IRemoteFunctionClient
 {
     private readonly RemoteFunctionExecutor _executor;
 
@@ -12,11 +12,28 @@ public sealed class RemoteFunctionClient
         _executor = executor;
     }
 
-    public Task<RemoteFunctionResult> InvokeAsync(
-        IReadOnlyDictionary<string, object?> arguments,
+    public Task<RemoteFunctionResult<TResponse>> InvokeAsync<TRequest, TResponse>(
+        string functionName,
+        TRequest request,
         CancellationToken cancellationToken = default)
     {
-        var call = RemoteFunctionCall.From(arguments);
-        return _executor.ExecuteAsync(call, cancellationToken);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var invocation = new RemoteFunctionInvocation<TRequest>(
+            new RemoteFunctionName(functionName),
+            request);
+        return _executor.ExecuteAsync<TRequest, TResponse>(invocation, cancellationToken);
+    }
+
+    public Task<RemoteFunctionResult<TResponse>> InvokeAsync<TResponse>(
+        string functionName,
+        CancellationToken cancellationToken = default)
+    {
+        var invocation = new RemoteFunctionInvocation<EmptyRemoteFunctionRequest>(
+            new RemoteFunctionName(functionName),
+            EmptyRemoteFunctionRequest.Instance);
+        return _executor.ExecuteAsync<EmptyRemoteFunctionRequest, TResponse>(
+            invocation,
+            cancellationToken);
     }
 }

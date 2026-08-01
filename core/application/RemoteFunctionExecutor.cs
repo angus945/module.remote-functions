@@ -1,5 +1,3 @@
-using RemoteFunctions.Core.Domain;
-
 namespace RemoteFunctions.Core.Application;
 
 public sealed class RemoteFunctionExecutor
@@ -11,11 +9,11 @@ public sealed class RemoteFunctionExecutor
         _gateway = gateway;
     }
 
-    public Task<RemoteFunctionResult> ExecuteAsync(
-        RemoteFunctionCall call,
+    public Task<RemoteFunctionResult<TResponse>> ExecuteAsync<TRequest, TResponse>(
+        RemoteFunctionInvocation<TRequest> invocation,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(call);
-        return _gateway.InvokeAsync(call, cancellationToken);
+        ArgumentNullException.ThrowIfNull(invocation);
+        return _gateway.InvokeAsync<TRequest, TResponse>(invocation, cancellationToken);
     }
 }

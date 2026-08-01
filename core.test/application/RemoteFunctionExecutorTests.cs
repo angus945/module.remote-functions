@@ -6,38 +6,51 @@ namespace RemoteFunctions.Core.Tests.Application;
 public sealed class RemoteFunctionExecutorTests
 {
     [Fact]
-    public async Task ExecuteAsync_DelegatesToGateway()
+    public async Task ExecuteAsync_DelegatesInvocationAndCancellationTokenToGateway()
     {
-        var gateway = new RecordingGateway(RemoteFunctionResult.Success());
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var request = new TestRequest("player-1");
+        var gateway = new RecordingGateway<TestRequest, TestResponse>(
+            RemoteFunctionResult<TestResponse>.Success(new TestResponse("ok")));
         var executor = new RemoteFunctionExecutor(gateway);
-        var call = RemoteFunctionCall.From(new Dictionary<string, object?>
-        {
-            ["recordId"] = "record-1"
-        });
+        var invocation = new RemoteFunctionInvocation<TestRequest>(
+            new RemoteFunctionName("loadPlayer"),
+            request);
 
-        var result = await executor.ExecuteAsync(call);
+        var result = await executor.ExecuteAsync<TestRequest, TestResponse>(
+            invocation,
+            cancellationTokenSource.Token);
 
         Assert.True(result.IsSuccess);
-        Assert.Same(call, gateway.LastCall);
+        Assert.Equal("loadPlayer", gateway.LastInvocation?.FunctionName.Value);
+        Assert.Same(request, gateway.LastInvocation?.Request);
+        Assert.Equal(cancellationTokenSource.Token, gateway.LastCancellationToken);
     }
 
-    private sealed class RecordingGateway : IRemoteFunctionGateway
+    private sealed class RecordingGateway<TRequest, TResponse> : IRemoteFunctionGateway
     {
-        private readonly RemoteFunctionResult _result;
+        private readonly RemoteFunctionResult<TResponse> _result;
 
-        public RecordingGateway(RemoteFunctionResult result)
+        public RecordingGateway(RemoteFunctionResult<TResponse> result)
         {
             _result = result;
         }
 
-        public RemoteFunctionCall? LastCall { get; private set; }
+        public RemoteFunctionInvocation<TRequest>? LastInvocation { get; private set; }
 
-        public Task<RemoteFunctionResult> InvokeAsync(
-            RemoteFunctionCall call,
+        public CancellationToken LastCancellationToken { get; private set; }
+
+        public Task<RemoteFunctionResult<TGatewayResponse>> InvokeAsync<TGatewayRequest, TGatewayResponse>(
+            RemoteFunctionInvocation<TGatewayRequest> invocation,
             CancellationToken cancellationToken = default)
         {
-            LastCall = call;
-            return Task.FromResult(_result);
+            LastInvocation = Assert.IsType<RemoteFunctionInvocation<TRequest>>(invocation);
+            LastCancellationToken = cancellationToken;
+            return Task.FromResult(Assert.IsType<RemoteFunctionResult<TGatewayResponse>>(_result));
         }
     }
+
+    private sealed record TestRequest(string PlayerId);
+
+    private sealed record TestResponse(string Status);
 }
