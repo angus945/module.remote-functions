@@ -9,6 +9,7 @@ public sealed class RemoteFunctionClient : IRemoteFunctionClient
 
     public RemoteFunctionClient(RemoteFunctionExecutor executor)
     {
+        ArgumentNullException.ThrowIfNull(executor);
         _executor = executor;
     }
 
@@ -17,6 +18,7 @@ public sealed class RemoteFunctionClient : IRemoteFunctionClient
         TRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(functionName);
         ArgumentNullException.ThrowIfNull(request);
 
         var invocation = new RemoteFunctionInvocation<TRequest>(
@@ -29,6 +31,8 @@ public sealed class RemoteFunctionClient : IRemoteFunctionClient
         string functionName,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(functionName);
+
         var invocation = new RemoteFunctionInvocation<EmptyRemoteFunctionRequest>(
             new RemoteFunctionName(functionName),
             EmptyRemoteFunctionRequest.Instance);

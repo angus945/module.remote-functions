@@ -11,6 +11,12 @@ namespace RemoteFunctions.GoogleAppsScript.Infrastructure.Gateway;
 internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
 {
     private const int MaxRedirects = 3;
+    private static readonly HashSet<string> AllowedRedirectHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "script.google.com",
+        "script.googleusercontent.com"
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly GoogleAppsScriptOptions _options;
@@ -20,6 +26,9 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
         GoogleAppsScriptOptions options,
         HttpClient httpClient)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(httpClient);
+
         _options = options;
         _httpClient = httpClient;
     }
@@ -33,10 +42,23 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
             return RemoteFunctionResult<TResponse>.Failure(GoogleAppsScriptErrorMapper.NotConfigured());
         }
 
-        var requestJson = CreateRequestJson(invocation);
         var requestUri = _options.EndpointUri;
         var method = HttpMethod.Post;
         var redirectCount = 0;
+        string requestJson;
+
+        try
+        {
+            requestJson = CreateRequestJson(invocation);
+        }
+        catch (JsonException)
+        {
+            return RemoteFunctionResult<TResponse>.Failure(GoogleAppsScriptErrorMapper.SerializationError());
+        }
+        catch (NotSupportedException)
+        {
+            return RemoteFunctionResult<TResponse>.Failure(GoogleAppsScriptErrorMapper.SerializationError());
+        }
 
         try
         {
@@ -66,6 +88,12 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
                 {
                     return RemoteFunctionResult<TResponse>.Failure(
                         GoogleAppsScriptErrorMapper.InsecureRedirect(redirectUri));
+                }
+
+                if (!AllowedRedirectHosts.Contains(redirectUri.Host))
+                {
+                    return RemoteFunctionResult<TResponse>.Failure(
+                        GoogleAppsScriptErrorMapper.UntrustedRedirectHost(redirectUri));
                 }
 
                 method = RedirectMethod(response.StatusCode, method);
@@ -142,6 +170,8 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
         }
 
         return apiResponse.Error is null
+            || string.IsNullOrWhiteSpace(apiResponse.Error.Code)
+            || string.IsNullOrWhiteSpace(apiResponse.Error.Message)
             ? RemoteFunctionResult<TResponse>.Failure(GoogleAppsScriptErrorMapper.InvalidResponse())
             : RemoteFunctionResult<TResponse>.Failure(GoogleAppsScriptErrorMapper.RemoteError(apiResponse.Error));
     }

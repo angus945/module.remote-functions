@@ -7,6 +7,9 @@ public sealed class GoogleAppsScriptOptions
         string sharedAccessToken,
         string source = "RemoteFunction")
     {
+        ArgumentNullException.ThrowIfNull(endpointUrl);
+        ArgumentNullException.ThrowIfNull(sharedAccessToken);
+
         EndpointUrl = endpointUrl.Trim();
         SharedAccessToken = sharedAccessToken.Trim();
         Source = string.IsNullOrWhiteSpace(source) ? "RemoteFunction" : source.Trim();

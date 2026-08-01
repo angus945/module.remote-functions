@@ -6,6 +6,14 @@ namespace RemoteFunctions.Core.Tests.Application;
 public sealed class RemoteFunctionExecutorTests
 {
     [Fact]
+    public void Constructor_NullGatewayThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() => new RemoteFunctionExecutor(null!));
+
+        Assert.Equal("gateway", exception.ParamName);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DelegatesInvocationAndCancellationTokenToGateway()
     {
         using var cancellationTokenSource = new CancellationTokenSource();

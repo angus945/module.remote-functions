@@ -15,11 +15,27 @@ internal static class GoogleAppsScriptErrorMapper
 
     public static RemoteFunctionError HttpStatus(int statusCode)
     {
+        var kind = statusCode switch
+        {
+            401 => RemoteFunctionErrorKind.Authentication,
+            403 => RemoteFunctionErrorKind.Authorization,
+            429 => RemoteFunctionErrorKind.RateLimit,
+            _ => RemoteFunctionErrorKind.Transport
+        };
+
         return new RemoteFunctionError(
             $"HTTP_{statusCode}",
             $"Google Apps Script endpoint returned HTTP {statusCode}.",
-            statusCode == 429 ? RemoteFunctionErrorKind.RateLimit : RemoteFunctionErrorKind.Transport,
-            statusCode is 429 or >= 500);
+            kind,
+            statusCode is 408 or 429 or >= 500);
+    }
+
+    public static RemoteFunctionError SerializationError()
+    {
+        return new RemoteFunctionError(
+            "SERIALIZATION_ERROR",
+            "Remote function request could not be serialized.",
+            RemoteFunctionErrorKind.Serialization);
     }
 
     public static RemoteFunctionError Timeout()
@@ -61,6 +77,14 @@ internal static class GoogleAppsScriptErrorMapper
         return new RemoteFunctionError(
             "INSECURE_REDIRECT",
             $"Google Apps Script redirect target is not HTTPS: {redirectUri}.",
+            RemoteFunctionErrorKind.Protocol);
+    }
+
+    public static RemoteFunctionError UntrustedRedirectHost(Uri redirectUri)
+    {
+        return new RemoteFunctionError(
+            "UNTRUSTED_REDIRECT_HOST",
+            $"Google Apps Script redirect target is not trusted: {redirectUri.Host}.",
             RemoteFunctionErrorKind.Protocol);
     }
 

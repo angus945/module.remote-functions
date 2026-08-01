@@ -9,5 +9,6 @@ public enum RemoteFunctionErrorKind
     Timeout,
     RateLimit,
     Protocol,
+    Serialization,
     RemoteExecution
 }

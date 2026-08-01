@@ -7,6 +7,14 @@ namespace RemoteFunctions.Core.Tests.Presentation;
 public sealed class RemoteFunctionClientTests
 {
     [Fact]
+    public void Constructor_NullExecutorThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() => new RemoteFunctionClient(null!));
+
+        Assert.Equal("executor", exception.ParamName);
+    }
+
+    [Fact]
     public async Task InvokeAsync_SupportsTypedRequest()
     {
         var gateway = new RecordingGateway();

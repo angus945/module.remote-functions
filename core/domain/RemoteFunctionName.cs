@@ -1,9 +1,11 @@
 namespace RemoteFunctions.Core.Domain;
 
-public readonly record struct RemoteFunctionName
+public sealed record RemoteFunctionName
 {
     public RemoteFunctionName(string value)
     {
+        ArgumentNullException.ThrowIfNull(value);
+
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException("Function name cannot be empty.", nameof(value));

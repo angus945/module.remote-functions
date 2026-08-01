@@ -9,6 +9,37 @@ namespace RemoteFunctions.GoogleAppsScript.Tests.Presentation;
 public sealed class GoogleAppsScriptClientFactoryTests
 {
     [Fact]
+    public void GoogleAppsScriptOptions_NullEndpointThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            new GoogleAppsScriptOptions(null!, "token"));
+
+        Assert.Equal("endpointUrl", exception.ParamName);
+    }
+
+    [Fact]
+    public void GoogleAppsScriptOptions_NullTokenThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            new GoogleAppsScriptOptions("https://script.google.com/macros/s/deployment/exec", null!));
+
+        Assert.Equal("sharedAccessToken", exception.ParamName);
+    }
+
+    [Fact]
+    public void GoogleAppsScriptClientFactory_NullHttpClientThrowsArgumentNullException()
+    {
+        var options = new GoogleAppsScriptOptions(
+            "https://script.google.com/macros/s/deployment/exec",
+            "secret-token");
+
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            GoogleAppsScriptClientFactory.Create(options, null!));
+
+        Assert.Equal("httpClient", exception.ParamName);
+    }
+
+    [Fact]
     public async Task InvokeAsync_SendsFunctionAndPayloadEnvelope()
     {
         string? postedJson = null;
@@ -103,6 +134,51 @@ public sealed class GoogleAppsScriptClientFactoryTests
     }
 
     [Fact]
+    public async Task InvokeAsync_Http401MapsToAuthenticationError()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.Unauthorized)));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("HTTP_401", result.Error?.Code);
+        Assert.Equal(RemoteFunctionErrorKind.Authentication, result.Error?.Kind);
+        Assert.False(result.Error?.Retryable);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_Http403MapsToAuthorizationError()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.Forbidden)));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("HTTP_403", result.Error?.Code);
+        Assert.Equal(RemoteFunctionErrorKind.Authorization, result.Error?.Kind);
+        Assert.False(result.Error?.Retryable);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_Http429MapsToRetryableRateLimitError()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage((HttpStatusCode)429)));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("HTTP_429", result.Error?.Code);
+        Assert.Equal(RemoteFunctionErrorKind.RateLimit, result.Error?.Kind);
+        Assert.True(result.Error?.Retryable);
+    }
+
+    [Fact]
     public async Task InvokeAsync_MapsInvalidJsonToProtocolError()
     {
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
@@ -113,6 +189,41 @@ public sealed class GoogleAppsScriptClientFactoryTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(RemoteFunctionErrorKind.Protocol, result.Error?.Kind);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_MalformedErrorEnvelopeMapsToProtocolError()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
+            JsonResponse("""{"success":false,"data":null,"error":{"retryable":false}}""")));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("INVALID_RESPONSE", result.Error?.Code);
+        Assert.Equal(RemoteFunctionErrorKind.Protocol, result.Error?.Kind);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_UnserializableRequestMapsToSerializationError()
+    {
+        var called = false;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
+        {
+            called = true;
+            return JsonResponse("""{"success":true,"data":{"status":"ok"},"error":null}""");
+        }));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<UnsupportedRequest, HealthResponse>(
+            "unsupported",
+            new UnsupportedRequest(() => { }));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SERIALIZATION_ERROR", result.Error?.Code);
+        Assert.Equal(RemoteFunctionErrorKind.Serialization, result.Error?.Kind);
+        Assert.False(called);
     }
 
     [Fact]
@@ -187,6 +298,25 @@ public sealed class GoogleAppsScriptClientFactoryTests
         Assert.Equal([HttpMethod.Post, HttpMethod.Post], methods);
         Assert.False(string.IsNullOrWhiteSpace(bodies[0]));
         Assert.Equal(bodies[0], bodies[1]);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_RedirectToUnknownHostReturnsProtocolError()
+    {
+        var calls = 0;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
+        {
+            calls++;
+            return Redirect(HttpStatusCode.TemporaryRedirect, "https://example.com/collect");
+        }));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("UNTRUSTED_REDIRECT_HOST", result.Error?.Code);
+        Assert.Equal(RemoteFunctionErrorKind.Protocol, result.Error?.Kind);
+        Assert.Equal(1, calls);
     }
 
     [Fact]
@@ -268,4 +398,6 @@ public sealed class GoogleAppsScriptClientFactoryTests
     private sealed record AcceptedResponse(bool Accepted);
 
     private sealed record HealthResponse(string Status);
+
+    private sealed record UnsupportedRequest(Action Callback);
 }

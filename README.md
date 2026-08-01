@@ -70,6 +70,10 @@ Zero-argument functions are supported:
 var health = await client.InvokeAsync<HealthResponse>("health");
 ```
 
+When injecting a custom `HttpClient`, its handler must set
+`AllowAutoRedirect = false`. Redirects are validated by this module so shared
+access tokens are not forwarded to untrusted hosts.
+
 ## Google Apps Script Contract
 
 Request envelope:

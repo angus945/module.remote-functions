@@ -6,6 +6,7 @@ public sealed class RemoteFunctionExecutor
 
     public RemoteFunctionExecutor(IRemoteFunctionGateway gateway)
     {
+        ArgumentNullException.ThrowIfNull(gateway);
         _gateway = gateway;
     }
 
