@@ -96,6 +96,31 @@ public sealed class GoogleAppsScriptRemoteFunctionClientTests
     }
 
     [Fact]
+    public async Task InvokeAsync_AllowsPlaceholderTokenToReachBackend()
+    {
+        string? postedJson = null;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            postedJson = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse("""{"ok":false,"error":"UNAUTHORIZED"}""");
+        }));
+        var options = new GoogleAppsScriptRemoteFunctionOptions(
+            "https://script.google.com/macros/s/deployment/exec",
+            "REPLACE_WITH_PRIVATE_API_TOKEN",
+            "AndroidApp");
+        var client = new GoogleAppsScriptRemoteFunctionClient(options, httpClient);
+
+        var result = await client.InvokeAsync(new Dictionary<string, object?>
+        {
+            ["recordId"] = "abc"
+        });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("UNAUTHORIZED", result.Error);
+        Assert.NotNull(postedJson);
+    }
+
+    [Fact]
     public async Task InvokeAsync_MapsHttpFailureToErrorCode()
     {
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>

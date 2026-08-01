@@ -2,7 +2,6 @@ namespace RemoteFunctions.GoogleAppsScript.Application;
 
 public sealed class GoogleAppsScriptRemoteFunctionOptions
 {
-    private const string PlaceholderApiToken = "REPLACE_WITH_PRIVATE_API_TOKEN";
     private const string PlaceholderDeploymentId = "REPLACE_WITH_DEPLOYMENT_ID";
 
     public GoogleAppsScriptRemoteFunctionOptions(
@@ -25,10 +24,8 @@ public sealed class GoogleAppsScriptRemoteFunctionOptions
     {
         get
         {
-            return Uri.TryCreate(EndpointUrl, UriKind.Absolute, out var uri)
-                && uri.Scheme == Uri.UriSchemeHttps
+            return EndpointUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(ApiToken)
-                && ApiToken != PlaceholderApiToken
                 && !EndpointUrl.Contains(PlaceholderDeploymentId, StringComparison.Ordinal);
         }
     }
