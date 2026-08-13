@@ -11,6 +11,7 @@ namespace RemoteFunctions.GoogleAppsScript.Infrastructure.Gateway;
 internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
 {
     private const int MaxRedirects = 3;
+    private const int MaxEchoRestarts = 3;
     private static readonly HashSet<string> AllowedRedirectHosts = new(StringComparer.OrdinalIgnoreCase)
     {
         "script.google.com",
@@ -45,6 +46,7 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
         var requestUri = _options.EndpointUri;
         var method = HttpMethod.Post;
         var redirectCount = 0;
+        var echoRestartCount = 0;
         string requestJson;
 
         try
@@ -66,6 +68,20 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
             {
                 using var request = CreateHttpRequest(method, requestUri, requestJson);
                 using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+                if (IsStaleEchoResponse(method, requestUri, response))
+                {
+                    if (echoRestartCount >= MaxEchoRestarts)
+                    {
+                        return RemoteFunctionResult<TResponse>.Failure(GoogleAppsScriptErrorMapper.TooManyRedirects());
+                    }
+
+                    requestUri = _options.EndpointUri;
+                    method = HttpMethod.Post;
+                    redirectCount = 0;
+                    echoRestartCount++;
+                    continue;
+                }
 
                 if (!IsRedirect(response.StatusCode))
                 {
@@ -115,6 +131,40 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
         }
     }
 
+    private bool IsStaleEchoResponse(
+        HttpMethod method,
+        Uri requestUri,
+        HttpResponseMessage response)
+    {
+        if (method != HttpMethod.Get || !IsEchoUri(requestUri))
+        {
+            return false;
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return true;
+        }
+
+        if (!IsRedirect(response.StatusCode))
+        {
+            return false;
+        }
+
+        var redirectUri = ResolveRedirectUri(requestUri, response.Headers.Location);
+        return redirectUri is not null
+            && _options.EndpointUri is not null
+            && string.Equals(redirectUri.Scheme, _options.EndpointUri.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(redirectUri.Host, _options.EndpointUri.Host, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(redirectUri.AbsolutePath, _options.EndpointUri.AbsolutePath, StringComparison.Ordinal);
+    }
+
+    private static bool IsEchoUri(Uri requestUri)
+    {
+        return string.Equals(requestUri.Host, "script.googleusercontent.com", StringComparison.OrdinalIgnoreCase)
+            && requestUri.AbsolutePath.StartsWith("/macros/echo", StringComparison.Ordinal);
+    }
+
     private string CreateRequestJson<TRequest>(RemoteFunctionInvocation<TRequest> invocation)
     {
         object? payload = invocation.Request is EmptyRemoteFunctionRequest ? null : invocation.Request;
@@ -132,7 +182,13 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
         Uri requestUri,
         string requestJson)
     {
-        var request = new HttpRequestMessage(method, requestUri);
+        var request = new HttpRequestMessage(method, requestUri)
+        {
+            Version = HttpVersion.Version11,
+            VersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+        request.Headers.Accept.ParseAdd("application/json");
+
         if (method != HttpMethod.Get)
         {
             request.Content = new StringContent(requestJson, Encoding.UTF8, "application/json");

@@ -256,9 +256,15 @@ public sealed class GoogleAppsScriptClientFactoryTests
     public async Task InvokeAsync_FoundRedirectUsesGet()
     {
         var methods = new List<HttpMethod>();
+        var versions = new List<Version>();
+        var versionPolicies = new List<HttpVersionPolicy>();
+        var acceptHeaders = new List<string>();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
         {
             methods.Add(request.Method);
+            versions.Add(request.Version);
+            versionPolicies.Add(request.VersionPolicy);
+            acceptHeaders.Add(string.Join(",", request.Headers.Accept.Select(header => header.MediaType)));
             if (methods.Count == 1)
             {
                 return Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo");
@@ -272,6 +278,11 @@ public sealed class GoogleAppsScriptClientFactoryTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal([HttpMethod.Post, HttpMethod.Get], methods);
+        Assert.Equal([HttpVersion.Version11, HttpVersion.Version11], versions);
+        Assert.Equal(
+            [HttpVersionPolicy.RequestVersionExact, HttpVersionPolicy.RequestVersionExact],
+            versionPolicies);
+        Assert.Equal(["application/json", "application/json"], acceptHeaders);
     }
 
     [Fact]
@@ -298,6 +309,70 @@ public sealed class GoogleAppsScriptClientFactoryTests
         Assert.Equal([HttpMethod.Post, HttpMethod.Post], methods);
         Assert.False(string.IsNullOrWhiteSpace(bodies[0]));
         Assert.Equal(bodies[0], bodies[1]);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_RestartsPostWhenEchoRedirectsBackToEndpoint()
+    {
+        var methods = new List<HttpMethod>();
+        var paths = new List<string>();
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            methods.Add(request.Method);
+            paths.Add(request.RequestUri!.AbsolutePath);
+
+            return methods.Count switch
+            {
+                1 => Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo?key=stale"),
+                2 => Redirect(HttpStatusCode.Found, "https://script.google.com/macros/s/deployment/exec"),
+                3 => Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo?key=fresh"),
+                _ => JsonResponse("""{"success":true,"data":{"status":"ok"},"error":null}""")
+            };
+        }));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("ok", result.Data?.Status);
+        Assert.Equal(
+            [HttpMethod.Post, HttpMethod.Get, HttpMethod.Post, HttpMethod.Get],
+            methods);
+        Assert.Equal(
+            ["/macros/s/deployment/exec", "/macros/echo", "/macros/s/deployment/exec", "/macros/echo"],
+            paths);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_RestartsPostWhenEchoReturnsNotFound()
+    {
+        var methods = new List<HttpMethod>();
+        var paths = new List<string>();
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            methods.Add(request.Method);
+            paths.Add(request.RequestUri!.AbsolutePath);
+
+            return methods.Count switch
+            {
+                1 => Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo?key=stale"),
+                2 => new HttpResponseMessage(HttpStatusCode.NotFound),
+                3 => Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo?key=fresh"),
+                _ => JsonResponse("""{"success":true,"data":{"status":"ok"},"error":null}""")
+            };
+        }));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("ok", result.Data?.Status);
+        Assert.Equal(
+            [HttpMethod.Post, HttpMethod.Get, HttpMethod.Post, HttpMethod.Get],
+            methods);
+        Assert.Equal(
+            ["/macros/s/deployment/exec", "/macros/echo", "/macros/s/deployment/exec", "/macros/echo"],
+            paths);
     }
 
     [Fact]
