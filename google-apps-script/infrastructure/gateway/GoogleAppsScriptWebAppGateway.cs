@@ -141,7 +141,8 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
             return false;
         }
 
-        if (response.StatusCode == HttpStatusCode.NotFound)
+        if (response.StatusCode == HttpStatusCode.NotFound
+            || IsRecoverableEchoFailure(response.StatusCode))
         {
             return true;
         }
@@ -163,6 +164,12 @@ internal sealed class GoogleAppsScriptWebAppGateway : IRemoteFunctionGateway
     {
         return string.Equals(requestUri.Host, "script.googleusercontent.com", StringComparison.OrdinalIgnoreCase)
             && requestUri.AbsolutePath.StartsWith("/macros/echo", StringComparison.Ordinal);
+    }
+
+    private static bool IsRecoverableEchoFailure(HttpStatusCode statusCode)
+    {
+        var statusCodeNumber = (int)statusCode;
+        return statusCodeNumber is >= 500 and <= 599;
     }
 
     private string CreateRequestJson<TRequest>(RemoteFunctionInvocation<TRequest> invocation)

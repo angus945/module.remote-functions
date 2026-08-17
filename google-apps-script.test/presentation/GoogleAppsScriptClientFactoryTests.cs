@@ -376,6 +376,38 @@ public sealed class GoogleAppsScriptClientFactoryTests
     }
 
     [Fact]
+    public async Task InvokeAsync_RestartsPostWhenEchoReturnsServerError()
+    {
+        var methods = new List<HttpMethod>();
+        var paths = new List<string>();
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            methods.Add(request.Method);
+            paths.Add(request.RequestUri!.AbsolutePath);
+
+            return methods.Count switch
+            {
+                1 => Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo?key=stale"),
+                2 => new HttpResponseMessage(HttpStatusCode.InternalServerError),
+                3 => Redirect(HttpStatusCode.Found, "https://script.googleusercontent.com/macros/echo?key=fresh"),
+                _ => JsonResponse("""{"success":true,"data":{"status":"ok"},"error":null}""")
+            };
+        }));
+        var client = CreateClient(httpClient);
+
+        var result = await client.InvokeAsync<HealthResponse>("health");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("ok", result.Data?.Status);
+        Assert.Equal(
+            [HttpMethod.Post, HttpMethod.Get, HttpMethod.Post, HttpMethod.Get],
+            methods);
+        Assert.Equal(
+            ["/macros/s/deployment/exec", "/macros/echo", "/macros/s/deployment/exec", "/macros/echo"],
+            paths);
+    }
+
+    [Fact]
     public async Task InvokeAsync_RedirectToUnknownHostReturnsProtocolError()
     {
         var calls = 0;
