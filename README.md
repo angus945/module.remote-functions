@@ -27,14 +27,16 @@ Google Apps Script Web App endpoints.
 
 ## Layers
 
-Each production module uses:
+The projects use the layers that apply to their responsibility:
 
-- `domain`: stable value objects and error concepts.
-- `application`: input/output ports, use-case orchestration, typed invocation
-  and result contracts.
-- `infrastructure`: transport details such as HTTP, JSON, configuration and GAS
-  envelope mapping.
-- `presentation`: composition roots and public factories.
+- `core/domain`: function names and transport-neutral error concepts.
+- `core/application`: client/gateway ports, execution, typed invocation, and
+  result contracts.
+- `core/presentation`: the transport-neutral `RemoteFunctionClient` facade.
+- `google-apps-script/infrastructure`: GAS configuration, HTTP/JSON transport,
+  envelope contracts, redirect handling, and error mapping.
+- `google-apps-script/presentation`: the public
+  `GoogleAppsScriptClientFactory` composition root.
 
 Dependency direction is one-way: `google-apps-script` depends on `core`; `core`
 does not reference GAS-specific types.
@@ -73,6 +75,18 @@ var health = await client.InvokeAsync<HealthResponse>("health");
 When injecting a custom `HttpClient`, its handler must set
 `AllowAutoRedirect = false`. Redirects are validated by this module so shared
 access tokens are not forwarded to untrusted hosts.
+
+The factory overload without a custom client uses a shared `HttpClient` with a
+10-second timeout. The gateway follows at most three redirects and accepts only
+HTTPS targets on `script.google.com` or `script.googleusercontent.com`.
+HTTP 301/302/303 redirects continue as GET, while 307/308 preserve POST and its
+body.
+
+Google can leave a stale `/macros/echo` URL in the redirect path. When a GET to
+that URL returns 404, returns 5xx, or redirects back to the configured endpoint,
+the gateway restarts the original POST, up to three times. This is a bounded GAS
+deployment-echo recovery path, not general automatic retry: ordinary HTTP,
+timeout, rate-limit, and remote-function failures are returned to the caller.
 
 ## Google Apps Script Contract
 
@@ -131,6 +145,7 @@ user login, short-lived tokens and server-side authorization.
 ## Build
 
 ```powershell
+dotnet build module.remote-functions.sln
 dotnet test module.remote-functions.sln
 ```
 
@@ -138,6 +153,6 @@ dotnet test module.remote-functions.sln
 
 - Google Apps Script Execution API.
 - OAuth or dynamic token providers.
-- Automatic retry.
+- General automatic retry or retry policies.
 - NuGet packaging.
 - Logging, metrics and circuit breakers.
